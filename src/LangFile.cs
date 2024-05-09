@@ -23,6 +23,16 @@ public class LangFile
         return CreateFrom(decompressedStream, header);
     }
 
+    public void Save(Stream stream)
+    {
+        Span<byte> buffer = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer, Header);
+        stream.Write(buffer);
+
+        using ZLibStream compressedStream = new(stream, CompressionLevel.SmallestSize);
+        Store(compressedStream);
+    }
+
     private static LangFile CreateFrom(Stream stream, uint header)
     {
         Span<byte> buffer = stackalloc byte[4];
@@ -54,5 +64,30 @@ public class LangFile
             Header = header,
             Entries = entries,
         };
+    }
+
+    private void Store(Stream stream)
+    {
+        Span<byte> buffer = stackalloc byte[4];
+        byte[] stringBuffer;
+
+        int entryCount = Entries.Count;
+        BinaryPrimitives.WriteInt32BigEndian(buffer[..4], entryCount);
+        stream.Write(buffer[..4]);
+
+        foreach ((string key, string text) in Entries)
+        {
+            stringBuffer = Encoding.UTF8.GetBytes(key);
+            ushort keyLength = (ushort)stringBuffer.Length;
+            BinaryPrimitives.WriteUInt16BigEndian(buffer[..2], keyLength);
+            stream.Write(buffer[..2]);
+            stream.Write(stringBuffer);
+
+            stringBuffer = Encoding.UTF8.GetBytes(text);
+            ushort textLength = (ushort)stringBuffer.Length;
+            BinaryPrimitives.WriteUInt16BigEndian(buffer[..2], textLength);
+            stream.Write(buffer[..2]);
+            stream.Write(stringBuffer);
+        }
     }
 }
