@@ -30,7 +30,6 @@ public class LangFile
 
         stream.ReadExactly(buffer[..4]);
         int entryCount = BinaryPrimitives.ReadInt32BigEndian(buffer[..4]);
-        entryCount = 5;
 
         Dictionary<string, string> entries = [];
         for (int i = 0; i < entryCount; ++i)
