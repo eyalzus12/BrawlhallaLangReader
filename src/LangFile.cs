@@ -13,25 +13,45 @@ public sealed class LangFile
     public required uint Header { get; set; }
     public required Dictionary<string, string> Entries { get; set; }
 
+    public LangFile() { }
+
+    public LangFile(uint header, Dictionary<string, string> entries)
+    {
+        Header = header;
+        Entries = entries;
+    }
+
     public static LangFile Load(Stream stream)
     {
         Span<byte> buffer = stackalloc byte[4];
-        stream.ReadExactly(buffer);
+        stream.ReadExactly(buffer[..4]);
         // why tf is the file header in little endian while the rest of the file is in big
-        uint header = BinaryPrimitives.ReadUInt32LittleEndian(buffer);
+        uint header = BinaryPrimitives.ReadUInt32LittleEndian(buffer[..4]);
 
         using ZLibStream decompressedStream = new(stream, CompressionMode.Decompress);
         return LoadInternal(decompressedStream, header);
     }
 
+    public static LangFile Load(string filePath)
+    {
+        using FileStream file = File.OpenRead(filePath);
+        return Load(file);
+    }
+
     public void Save(Stream stream)
     {
         Span<byte> buffer = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32LittleEndian(buffer, Header);
-        stream.Write(buffer);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer[..4], Header);
+        stream.Write(buffer[..4]);
 
         using ZLibStream compressedStream = new(stream, CompressionLevel.SmallestSize);
         SaveInternal(compressedStream);
+    }
+
+    public void Save(string filePath)
+    {
+        using FileStream file = File.OpenRead(filePath);
+        Save(file);
     }
 
     [SkipLocalsInit]
@@ -75,7 +95,7 @@ public sealed class LangFile
     private void SaveInternal(Stream stream)
     {
         Span<byte> buffer = stackalloc byte[4];
-        byte[] stringBuffer;
+        ReadOnlySpan<byte> stringBuffer;
 
         int entryCount = Entries.Count;
         BinaryPrimitives.WriteInt32BigEndian(buffer[..4], entryCount);
