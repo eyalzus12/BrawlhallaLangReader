@@ -3,11 +3,12 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace BrawlhallaLangReader;
 
-public class LangFile
+public sealed class LangFile
 {
     public required uint Header { get; set; }
     public required Dictionary<string, string> Entries { get; set; }
@@ -20,7 +21,7 @@ public class LangFile
         uint header = BinaryPrimitives.ReadUInt32LittleEndian(buffer);
 
         using ZLibStream decompressedStream = new(stream, CompressionMode.Decompress);
-        return CreateFrom(decompressedStream, header);
+        return LoadInternal(decompressedStream, header);
     }
 
     public void Save(Stream stream)
@@ -30,13 +31,14 @@ public class LangFile
         stream.Write(buffer);
 
         using ZLibStream compressedStream = new(stream, CompressionLevel.SmallestSize);
-        Store(compressedStream);
+        SaveInternal(compressedStream);
     }
 
-    private static LangFile CreateFrom(Stream stream, uint header)
+    [SkipLocalsInit]
+    private static LangFile LoadInternal(Stream stream, uint header)
     {
-        Span<byte> buffer = stackalloc byte[4];
-        byte[] stringBuffer;
+        Span<byte> buffer = stackalloc byte[1024];
+        Span<byte> stringBuffer = buffer; // starts small, sharing the buffer, and resizes if needed
 
         stream.ReadExactly(buffer[..4]);
         int entryCount = BinaryPrimitives.ReadInt32BigEndian(buffer[..4]);
@@ -44,17 +46,20 @@ public class LangFile
         Dictionary<string, string> entries = [];
         for (int i = 0; i < entryCount; ++i)
         {
+            // key
             stream.ReadExactly(buffer[..2]);
             ushort keyLength = BinaryPrimitives.ReadUInt16BigEndian(buffer[..2]);
-            stringBuffer = new byte[keyLength];
-            stream.ReadExactly(stringBuffer);
-            string key = Encoding.UTF8.GetString(stringBuffer);
-
+            if (keyLength > stringBuffer.Length)
+                stringBuffer = GC.AllocateUninitializedArray<byte>(keyLength);
+            stream.ReadExactly(stringBuffer[..keyLength]);
+            string key = Encoding.UTF8.GetString(stringBuffer[..keyLength]);
+            // text
             stream.ReadExactly(buffer[..2]);
             ushort textLength = BinaryPrimitives.ReadUInt16BigEndian(buffer[..2]);
-            stringBuffer = new byte[textLength];
-            stream.ReadExactly(stringBuffer);
-            string text = Encoding.UTF8.GetString(stringBuffer);
+            if (textLength > stringBuffer.Length)
+                stringBuffer = GC.AllocateUninitializedArray<byte>(textLength);
+            stream.ReadExactly(stringBuffer[..textLength]);
+            string text = Encoding.UTF8.GetString(stringBuffer[..textLength]);
 
             entries[key] = text;
         }
@@ -66,7 +71,8 @@ public class LangFile
         };
     }
 
-    private void Store(Stream stream)
+    [SkipLocalsInit]
+    private void SaveInternal(Stream stream)
     {
         Span<byte> buffer = stackalloc byte[4];
         byte[] stringBuffer;
