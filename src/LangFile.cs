@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BrawlhallaLangReader.Internal;
@@ -53,6 +52,15 @@ public sealed class LangFile
         return Load(file);
     }
 
+    public static ValueTask<LangFile> LoadAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return ValueTask.FromCanceled<LangFile>(cancellationToken);
+
+        using FileStream file = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return LoadAsync(file, cancellationToken);
+    }
+
     public void Save(Stream stream)
     {
         Span<byte> buffer = stackalloc byte[4];
@@ -63,10 +71,29 @@ public sealed class LangFile
         SaveInternal(compressedStream);
     }
 
+    public async ValueTask SaveAsync(Stream stream, CancellationToken cancellationToken = default)
+    {
+        byte[] buffer = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer, Header);
+        await stream.WriteAsync(buffer, cancellationToken);
+
+        using ZLibStream compressedStream = new(stream, CompressionLevel.SmallestSize);
+        await SaveInternalAsync(compressedStream, cancellationToken);
+    }
+
     public void Save(string filePath)
     {
         using FileStream file = File.OpenRead(filePath);
         Save(file);
+    }
+
+    public ValueTask SaveAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return ValueTask.FromCanceled(cancellationToken);
+
+        using FileStream file = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+        return SaveAsync(file, cancellationToken);
     }
 
     private static LangFile LoadInternal(Stream stream, uint header)
@@ -103,26 +130,11 @@ public sealed class LangFile
 
     private void SaveInternal(Stream stream)
     {
-        Span<byte> buffer = stackalloc byte[4];
-        ReadOnlySpan<byte> stringBuffer;
+        LangWriter.WriteEntries(stream, Entries);
+    }
 
-        int entryCount = Entries.Count;
-        BinaryPrimitives.WriteInt32BigEndian(buffer, entryCount);
-        stream.Write(buffer);
-
-        foreach ((string key, string text) in Entries)
-        {
-            stringBuffer = Encoding.UTF8.GetBytes(key);
-            ushort keyLength = (ushort)stringBuffer.Length;
-            BinaryPrimitives.WriteUInt16BigEndian(buffer[..2], keyLength);
-            stream.Write(buffer[..2]);
-            stream.Write(stringBuffer);
-
-            stringBuffer = Encoding.UTF8.GetBytes(text);
-            ushort textLength = (ushort)stringBuffer.Length;
-            BinaryPrimitives.WriteUInt16BigEndian(buffer[..2], textLength);
-            stream.Write(buffer[..2]);
-            stream.Write(stringBuffer);
-        }
+    private ValueTask SaveInternalAsync(Stream stream, CancellationToken cancellationToken = default)
+    {
+        return LangWriter.WriteEntriesAsync(stream, Entries, cancellationToken);
     }
 }
