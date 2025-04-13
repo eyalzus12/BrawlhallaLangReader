@@ -31,7 +31,7 @@ public sealed class LangFile
         // why tf is the file header in little endian while the rest of the file is in big
         uint header = BinaryPrimitives.ReadUInt32LittleEndian(buffer);
 
-        using ZLibStream decompressedStream = new(stream, CompressionMode.Decompress);
+        using ZLibStream decompressedStream = new(stream, CompressionMode.Decompress, true);
         return LoadInternal(decompressedStream, header);
     }
 
@@ -42,7 +42,7 @@ public sealed class LangFile
         // why tf is the file header in little endian while the rest of the file is in big
         uint header = BinaryPrimitives.ReadUInt32LittleEndian(buffer);
 
-        using ZLibStream decompressedStream = new(stream, CompressionMode.Decompress);
+        using ZLibStream decompressedStream = new(stream, CompressionMode.Decompress, true);
         return await LoadInternalAsync(decompressedStream, header, cancellationToken);
     }
 
@@ -56,9 +56,12 @@ public sealed class LangFile
     {
         if (cancellationToken.IsCancellationRequested)
             return ValueTask.FromCanceled<LangFile>(cancellationToken);
-
-        using FileStream file = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        return LoadAsync(file, cancellationToken);
+        return Core();
+        async ValueTask<LangFile> Core()
+        {
+            using FileStream file = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            return await LoadAsync(file, cancellationToken);
+        }
     }
 
     public void Save(Stream stream)
@@ -67,7 +70,7 @@ public sealed class LangFile
         BinaryPrimitives.WriteUInt32LittleEndian(buffer, Header);
         stream.Write(buffer);
 
-        using ZLibStream compressedStream = new(stream, CompressionLevel.SmallestSize);
+        using ZLibStream compressedStream = new(stream, CompressionLevel.SmallestSize, true);
         SaveInternal(compressedStream);
     }
 
@@ -77,13 +80,13 @@ public sealed class LangFile
         BinaryPrimitives.WriteUInt32LittleEndian(buffer, Header);
         await stream.WriteAsync(buffer, cancellationToken);
 
-        using ZLibStream compressedStream = new(stream, CompressionLevel.SmallestSize);
+        using ZLibStream compressedStream = new(stream, CompressionLevel.SmallestSize, true);
         await SaveInternalAsync(compressedStream, cancellationToken);
     }
 
     public void Save(string filePath)
     {
-        using FileStream file = File.OpenRead(filePath);
+        using FileStream file = new(filePath, FileMode.Create, FileAccess.Write);
         Save(file);
     }
 
@@ -91,9 +94,12 @@ public sealed class LangFile
     {
         if (cancellationToken.IsCancellationRequested)
             return ValueTask.FromCanceled(cancellationToken);
-
-        using FileStream file = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
-        return SaveAsync(file, cancellationToken);
+        return Core();
+        async ValueTask Core()
+        {
+            using FileStream file = new(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous);
+            await SaveAsync(file, cancellationToken);
+        }
     }
 
     private static LangFile LoadInternal(Stream stream, uint header)
